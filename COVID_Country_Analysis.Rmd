@@ -1,0 +1,166 @@
+---
+title: "COVID-19_Country_Comparison"
+author: "Danilo Steckelberg"
+date: "6/11/2020"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Análise COVID-19 no Brasil: comparação com outros países.
+
+Esta análise vai seguir o mesmo método apresentado nos seguintes artigos que publiquei anteriormente no Medium, com algumas análises complementares: https://bit.ly/COVID_Analise e https://bit.ly/Covid-math.
+
+Seguem aqui as perguntas que esta comparação deve responder:
+
+    - Como tem crescido o contágio e os óbitos no Brasil e como nos comparamos em relação a outros países?
+    - Temos sido mais ou menos efetivos para conter o contágio e os óbitos?
+    - Como está nossa taxa de letalidade em relação a outros países?
+
+Para as análises, foram selecionados alguns países para a comparação: temos, além do Brasil, Itália, Alemanha, Estados Unidos, China, Argentina, Rússia e Espanha. Os países selecionados têm sido extensivamente levantados nas notícias e estudos, com exceção da Argentina, que foi escolhida pela proximidade geográfica.
+
+Os dados utilizados na análise são provenientes do site Our World in Data (https://ourworldindata.org/coronavirus-source-data), que compila diariamente as informações oficiais sobre COVID-19 no mundo diretamente de fontes oficiais.
+
+# Leitura e análise dos dados
+Foi criada uma biblioteca com diversas funções que auxiliam a análise e plot dos gráficos.
+
+``` {r data.reading}
+# Load built-in auxiliary database
+wd <- getwd()
+source(paste(wd,"covidFunctionsLib.R",sep = "/"))
+
+# Read file and format dates
+download.file("https://covid.ourworldindata.org/data/owid-covid-data.csv","worldData.csv")
+world <- read.csv(file = "worldData.csv", sep = ",", header = TRUE)
+```
+
+
+# Seleção de países para a comparação e tradução dos nomes para o Português
+``` {r country.selection}
+countriesSelect <- c("Brazil", "Italy", "Germany","United States", "China", "Argentina", "Russia","Spain")
+countries <- c("Brasil", "Itália", "Alemanha", "Estados Unidos", "China", "Argentina", "Russia", "Espanha")
+worldSelect <- world[world$location %in% countriesSelect,]
+countriesList <- subsetDataByNames(world, countriesSelect)
+
+# Criar variáveis que consolidam os dados de casos e mortes por 7 dias para reduzir efeitos sazonais.
+for(i in 1:length(countriesList)){
+  countriesList[[i]]$taxaCrescimentoCasos <- taxaCrescimento(countriesList[[i]]$total_cases)
+  countriesList[[i]]$taxaCrescimentoCasos7d <- taxaCrescimento(daysSum(countriesList[[i]]$total_cases,7))
+  countriesList[[i]]$taxaCrescimentoObitos <- taxaCrescimento(countriesList[[i]]$total_deaths)
+  countriesList[[i]]$taxaCrescimentoObitos7d <- taxaCrescimento(daysSum(countriesList[[i]]$total_deaths,7))
+}
+
+# Criar uma variável para cada país selecionado - ajuda a fazer análises específicas sobre o país.
+for(i in 1:length(countriesList)){
+  assign(make.names(countriesSelect[i]), as.data.frame(countriesList[[i]]))
+}
+
+# Cálculo da variável de taxa de letalidade
+countriesList <- taxaLetalidade(countriesList = countriesList, offsetDays = 5)
+
+```
+
+# Como tem crescido o contágio e os óbitos no Brasil e como nos comparamos em relação a outros países?
+A primeira parte da análise compara a evolução da taxa de crescimento de novos casos ao longo do tempo para os países selecionados.
+
+```{r crescimento.casos, echo=FALSE}
+
+par(mfrow = c(1,2), oma = c(0,0,2,0))
+plotTaxaCrescimento(countriesNames = countries, countriesList = countriesList, 
+                    png = FALSE, palname = "Dark2")
+plotTaxaCrescimentoTrunc(countriesNames = countries, countriesList = countriesList, png = FALSE,
+                         minThresCases = 100, palname = "Dark2")
+title("Taxa de Crescimento", outer = TRUE)
+
+
+```
+
+Podemos ver que, com exceção da China, que uma maior taxa de crescimento em fevereiro, a maioria dos países teve este crescimento acentuado a partir de março. O Brasil e a Argentina são os países dessa lista que apresentam as taxas mais elevadas de crescimento de novos casos, e podemos ver também que somos os países que estão sustentando este crescimento por mais tempo. Os demais países da lista conseguiram deixar sua taxa de crescimento próximo a zero com 75 dias após os 100 primeiros casos, enquanto mantemos índices relativamente altos entre 3% e 5% ao dia na última semana.
+
+Agora vamos apresentar o gráfico de novos casos versus os casos totais. Assim podemos ver o quanto os casos atuais estão produzindo novos casos. Se não estiverem produzindo, significa que estamos vencendo a doença. Segue o gráfico.
+
+```{r casosNovos.casosTotais, echo=FALSE}
+plotCasesDeaths(countriesNames = countries, countriesList = countriesList, 
+                minCasesThresh = 100, daysNewCases = 7, palname = "Dark2")
+```
+
+
+Primeiramente, podemos ver um padrão semelhante entre os países: praticamente todos seguiram uma linha reta de crescimento de casos entre 1,000 casos acumulados e um pouco acima dos 10,000 casos acumulados. As exceções neste gráfico são o Brasil e a Argentina. Quanto mais esta linha estiver na parte de cima, mais rápido é o crescimento da doença. Os países que conseguem vencer o crescimento exponencial apresentam uma queda brusca nos casos novos, como a China, pouco antes dos 100,000 casos acumulados.
+
+Apesar de o Brasil estar ligeiramente abaixo dos demais países, vemos que, até agora, não apresenta uma tendência de queda nos casos novos, ou mesmo de óbitos novos, indicando que seguimos na parte exponencial do crescimento.
+
+A Argentina, apesar de ainda apresentar crescimento nos casos da doença, parece estar conseguindo evitar óbitos, que não apresentam crescimento na mesma proporção da doença.
+
+Somos, em números absolutos, o segundo país com maior número de casos, e em estágio de crescimento, ao passo que os Estados Unidos, país com maior número de casos, está com declínio de novos casos.
+
+# E como o Brasil está em números relativos?
+
+Vamos contabilizar não o número absoluto de casos e óbitos, mas casos e óbitos por milhão de habitantes. Afinal, temos mais casos, mas também somos bem mais populosos que Alemanha, França e Argentina. A figura abaixo apresenta o mesmo gráfico, de novos casos no eixo y por casos totais no eixo x, só que por milhão de habitantes. A quantidade de casos por milhão de habitantes também é conhecida como saturação.
+
+``` {r crescimento.saturação, echo=FALSE}
+plotCrescSatur(countriesNames = countries, countriesList = countriesList,
+                   minThresCases = 50, palname = "Dark2")
+```
+
+Podemos ver que o Brasil é o terceiro país desta lista com maior número de casos totais por milhão de habitantes (repare no eixo x), atrás apenas dos Estados Unidos e da Espanha. Entretanto, podemos ver que não estamos apresentando tendência de queda, e, provavelmente, logo passaremos os Estados Unidos, uma vez que já temos mais casos novos por milhão de habitantes que eles — que já aparentam estar no estágio decrescente do contágio.
+
+# O que podemos observar com a curva de novos casos?
+É bastante rico observar a forma com que a curva de novos casos evolui com o tempo. Aprendemos muito de forma visual e a ideia é usar disto para entendermos um pouquinho mais o momento que estamos.
+
+Aqui vamos usar de um recurso de análise de séries temporais, ou seja, de coisas que variem no tempo (por isso chamadas de variáveis). No caso, a variável que vamos analisar é a de novas contaminações. As séries temporais são geralmente compostas de 3 elementos: uma tendência, que indica a forma geral como a variável se comporta no longo prazo, uma sazonalidade, que aponta para padrões que se repetem em curtos intervalos de tempo (cíclicos), e aleatórios, que são flutuações residuais que não se enquadram nesses dois elementos anteriores. Para quem quiser entender um pouco mais, recomendo este artigo. A figura abaixo apresenta a série temporal de novos casos nos Estados Unidos e sua decomposição. Para avaliação de sazonalizade, foi considerado um período de 7 dias, ou seja, uma semana, uma vez que há flutuações cíclicas significativas devido aos finais de semana.
+
+``` {r time.series, echo=FALSE}
+timeseries <- ts(United.States$new_cases_per_million, frequency = 7)
+myPlot.decomposed.ts(decompose(timeseries), xlab = "Semanas", axisScale = 1.5)
+```
+
+Podemos observar que os dados observados, por si só, trazem algumas flutuações que dificultam avaliar quando realmente a curva de novos casos parou de crescer. Fazendo a decomposição dos efeitos sazonais e aleatórios, podemos ver uma tendência mais suave e que parou de crescer próximo à semana 15. Podemos ver também que há uma flutuação considerável de casos reportados para diferentes dias da semana, nos finais de semana em torno de 1000 casos a menos que a média, e, nos dias mais ativos, em torno de 1000 a casos a mais que a média.
+
+Podemos usar as tendências nos dados de novos casos por milhão de habitantes para fazer comparações entre os países selecionados. Para remover o efeito do deslocamento no tempo que as contaminações tiveram (o contágio ocorreu mais cedo na China, depois na Europa e só depois nas Américas), estão contabilizados no eixo x os dias após 50 primeiros casos. A Figura 5. apresenta esta comparação.
+
+``` {r trend, echo=FALSE}
+timeSeriesTrend(countriesNames = countries, countriesList, freq = 7, palname = "Dark2", plotwidth = 800, minThres = 50)
+```
+
+Os países desta comparação da Europa Ocidental (Itália, Alemanha e Espanha) tiveram seus picos de novos casos em torno de um mês (31, 34 e 29 dias, respectivamente), os Estados Unidos levaram 44 dias para atingir o pico de novos casos, a Russia levou 57 dias, e o Brasil e Argentina, com mais de 80 dias após os primeiros casos, ainda não atingiram o pico.
+
+Um argumento para isso é o de que “achatamos a curva”, mas este argumento não se sustenta, uma vez que a ideia de achatar a curva é reduzir o pico de novos casos e, dentre os países selecionados, só não temos número de novos casos maior do que o da Espanha, e ainda estamos crescendo. A Argentina pode ser um exemplo de sucesso de achatamento da curva, mas os dados não são suficientes para inferir tal conclusão.
+
+Podemos ver que, dentre os países selecionados, a Alemanha e China conseguiram conter o contágio com o menor número de casos. A China, por sua população desproporcionalmente maior, praticamente nem aparece no gráfico. A Alemanha conseguiu conter o contágio com pouco mais de 66 casos novos por milhão de habitantes, enquanto a Rússia, 75 novos casos por milhão de habitantes, Itália 93, Estados Unidos 96 e Espanha com 169, liderando o número de novos casos por milhão de habitantes. Brasil e Argentina ainda não atingiram o pico e estão, respectivamente, 123 e 20 casos por milhão de habitantes (10 de junho).
+
+Para colocar em uma perspectiva mais ampla, a figura abaixo apresenta o gráfico de dias entre 50 casos e o pico de novos casos versus máximo de casos novos por milhão de habitantes. Os pontos em vermelho são os países que ainda não passaram do pico, e os em cinza são os que passaram do pico.
+
+``` {r novosCasos.diasPico, echo=FALSE}
+plotDiasPicoVsSat(data = world, countriesNames = countriesSelect, freq = 7, timeSeriesCasesThres = 50, countriesTotalCasesThres = 1000, palname = "Dark2")
+```
+
+O Brasil está entre os países que estão há mais tempo sem atingir o pico de novos casos, e também está entre os números mais altos de casos novos por milhão de habitantes, com o agravante de este número ainda estar crescendo.
+
+Estes números tendem à conclusão de que nossas políticas não estão sendo eficientes e estamos estendendo o estado de epidemia em nosso país, o que, além de ruim para saúde pública, é também ruim para a economia.
+
+# E como estamos em relação à taxa de letalidade?
+A figura abaixo apresenta a taxa de letalidade para os países selecionados. O método usado para cálculo aqui considera que há uma defasagem em torno de 4 dias entre a notificação da doença e a notificação do óbito, conforme apresentei no primeiro artigo.
+```{r taxa.letalidade, echo=FALSE}
+plotTaxaLetalidade(countriesNames = countries, countriesList = countriesList, png = TRUE, plotWidth = 800)
+```
+
+O que podemos ver é que tivemos um pico de quase 10% de taxa de letalidade, e estamos caindo para valores em torno de 5%, apresentando números agora próximos aos dos Estados Unidos, e bem melhores que Itália e Espanha. Nossa vizinha, Argentina, apresenta valores abaixo de 3% de taxa de letalidade.
+
+Colocando em uma perspectiva mais ampla, a figura abaixo apresenta o total de casos por milhão de habitantes e a taxa de letalidade para todos os países que têm mais de 10,000 casos totais.
+
+```{r comp.taxaLetal, echo=FALSE}
+plotTaxaLetalVsTotalCasos(data=world, countriesNames = countriesSelect, minCasesThres = 10000, palname = "Dark2")
+```
+
+Podemos ver que o Brasil está bem acima da mediana para total de casos por milhão de habitantes (notar que o gráfico está em escala logarítmica — o Brasil está com 3479 casos por milhão e a mediana 2102 casos por milhão), e razoavelmente próximo da mediana da taxa de letalidade. Uma das hipóteses possíveis é a de que nosso sistema de saúde, até o momento, está conseguindo lidar com os casos adequadamente. Entretanto, não é possível confirmar esta hipótese com os dados apresentados.
+
+# Conclusão
+As análises aqui apresentadas levam em conta apenas os números publicados referentes a casos e óbitos, não levando em conta em nenhuma análise fatores como ocupação de leitos, estrutura hospitalar, políticas de combate. Ainda assim, algumas conclusões se fazem possíveis:
+
+    - Estamos entre os países em que a doença mais se disseminou, e entre os que estão lutando há mais dias sem ainda ter atingido o pico — ou seja, não conseguimos ainda, de fato, combater a doença.
+    - Há indícios que nossa estrutura hospitalar ainda está em condições de combater a doença, haja vista que nossa taxa de letalidade está decaindo.
+    - Alguns estudos apontam para uma alta subnotificação de casos e óbitos. As conclusões aqui apresentadas, com exceção da taxa de letalidade, que necessita de muito mais informações para chegar a uma conclusão, são reforçadas pela subnotificação, uma vez que estaríamos com ainda mais casos por milhão de habitantes e estaríamos há mais dias ainda sem conseguir atingir o pico de novos casos.
