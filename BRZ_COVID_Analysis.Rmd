@@ -1,0 +1,141 @@
+---
+title: "Covid_BR_Analysis"
+author: "Danilo Steckelberg"
+date: "6/16/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Leitura e pré-processamento dos dados
+
+Esta seção faz o download dos dados disponibilizados na plataforma [brasil.io](https://brasil.io/home/). Os dados são compilados em um mesmo arquivo, por município e por unidade federativa, então é necessário separar cada um destes dados em *dataframes* diferentes.
+```{r leitura.dados}
+# Armazenar o nome do diretório atual
+wd <- getwd()
+
+# Carregamento de uma biblioteca criada especificamente para esta análise.
+source(paste(wd,"BRZcovidFunctionsLib.R",sep = "/"))
+
+# Download do arquivo da fonte brasil.io
+download.file("https://data.brasil.io/dataset/covid19/caso_full.csv.gz","brazilDataGZ.csv.gz")
+
+# leitura do arquivo csv para criar um dataframe grande com todas as informações por município e UF
+BRZ.Covid.Data<-read.csv(gzfile(description = "brazilDataGZ.csv.gz"))
+BRZ.Covid.Data$date <- as.Date(BRZ.Covid.Data$date)
+
+# Separação de dados por UF e município
+state.data <- BRZ.Covid.Data[BRZ.Covid.Data$place_type == "state",]
+city.data <- BRZ.Covid.Data[BRZ.Covid.Data$place_type != "state",]
+
+# Agregar os dados por data para cidades e UFs, e adicionando variáveis calculadas, como taxa de mortalidade e % de cidades com óbitos e casos confirmados.
+state.agg.data <- state.agg.func(state.data, city.data)
+city.agg.data <- city.agg.func(city.data)
+```
+## Crescimento de casos por UF
+```{r plot.growth, echo = FALSE}
+statesList <- subsetDataByNames(BRZ.Covid.Data,vectorOfStrings = unique(BRZ.Covid.Data$state))
+plotNewCasesVsTotal(names = unique(BRZ.Covid.Data$state), dataList = statesList, daysNewCases = 14, palname = "Set1")
+```
+Podemos ver que o crescimento em todos os estados se dá de forma muito similar, no sentido em que casos totais registram números similares de novos casos. O fato de o gráfico se aproximar de uma reta, significa que estamos no estágio de crescimento exponencial. Quando o gráfico apresenta uma queda nos novos casos (eixo *y*) e começa a formar uma curva apontando para baixo, isto significa que o contágio está atingindo o pico e começando a cair. Nenhuma UF apresenta este comportamento claramente definido ainda, sendo que PE e AM podem estar iniciando este estágio.
+
+A conclusão é a de que todos os estados, até o momento (16/06) apresentam ainda crescimento exponencial de casos da COVID-19.
+
+## Plotagem de gráficos para comparação por estados
+Aqui são feitas as comparações por UFs. Primeiro, a taxa de casos e óbitos por 100 mil habitantes.
+```{r ploting.states, echo = FALSE}
+#### Casos e óbitos por 100 mil habitantes ####
+fig <- plot_ly(data = state.agg.data, x = ~cases_per_100k,y = ~deaths_per_100k,type = "scatter", mode = "markers",
+        text = ~paste("Casos por 100k:",round(cases_per_100k,1),
+                      "<br>Óbitos por 100k:",round(deaths_per_100k,1),"<br>Letalidade:",
+                      100*round(death_rate,3),"%",
+                      "<br>UF:",state),
+        marker = list(
+          color=~death_rate,
+          colorscale='Jet',
+          size=10,
+          opacity=.9,
+          colorbar=list(
+            title='Taxa de Letalidade'
+          )))
+layout(fig, xaxis = list(title = "Casos por 100 mil habitantes",type = "log"),
+       yaxis = list(title = "Óbitos por 100 mil habitantes", type = "log"),
+       title ="Casos e óbitos por 100 mil hab. por UF",
+       margin = list(l=80, t=70, b=50, r=40))
+
+```
+Podemos ver que o RJ apresenta a maior taxa de letalidade dentre as UFs do Brasil, seguido de Pernambuco. O estado do AP apresenta a maior taxa de casos por 100 mil habitantes dentre as UFs, e AM como a maior taxa de óbitos por 100 mil habitantes. Como referência, a mediana para todos os países com mais de 10.000 casos, em 10 de junho, era de 210 casos por 100 mil habitantes, como mostrei [neste artigo](https://medium.com/@danilosteck/an%C3%A1lise-do-crescimento-covid-19-no-brasil-parte-2-brasil-versus-outros-pa%C3%ADses-155a2abf0ef0), ou seja, 20 das 27 UFs já estão acima desta taxa de letalidade.
+
+Do lado positivo, podemos ver o PR com o menor número de casos por 100 mil habitantes, e MS com menor número de óbitos por 100 mil habitantes. A menor taxa de letalidade também é registrada no MS.
+
+Podemos ver agora também a porcentagem de municípios com casos e óbitos por COVID-19 confirmados.
+
+```{r ploting.states2, echo = FALSE}
+#### Porcentagem de municípios com óbitos e com casos ####
+fig <- plot_ly(data = state.agg.data, x = ~cities.with.cases,y = ~cities.with.deaths,
+               type = "scatter",mode="markers", color = ~region, colors = "Dark2",
+               text = ~paste("Cidades com casos:",100*round(cities.with.cases,3),"%",
+                             "<br>Cidades com obitos:",100*round(cities.with.deaths,3),"%","<br>Letalidade:",
+                             100*round(death_rate,3),"%",
+                             "<br>UF:",state))
+layout(fig, xaxis = list(title = "Porcentagem de cidades com casos", range = c(0,1.05)),
+       yaxis = list(title = "Porcentagem de cidades com óbitos", range = c(0,1.05)),
+       title ="Taxa de cidades com casos e óbitos por UF",
+       margin = list(l=80, t=70, b=50, r=40))
+```
+
+Podemos ver que, fora o DF, que conta apenas com um município, os estados AP, RJ, SE e RO têm praticamente todos os municípios com casos de COVID-19, sendo que, destes, RO é o que tem a menor incidência de óbitos, com 51% dos municípios reportando algum óbito. O destaque vai para MG, que a menor incidência de municípios com casos (66,4%) e óbitos por COVID-19 (17,4%).
+
+## Plotagem de gráficos para comparação por municípios
+
+Agora podemos fazer uma análise por municípios. A nuvem de pontos aqui é bem mais interessante:
+
+```{r ploting.cities, echo = FALSE}
+citiesCases <- plot_ly(data = city.agg.data, x = ~cases_per_100k,y = ~deaths_per_100k,type = "scatter", mode = "markers",
+               text = ~paste("Casos por 100k:",round(cases_per_100k,1),
+                             "<br>Óbitos por 100k:",round(deaths_per_100k,1),"<br>Letalidade:",
+                             100*round(death_rate,3),"%",
+                             "<br>UF:",state,"<br>Cidade:", city,"<br>:População (2019):", estimated_population_2019),
+               marker = list(
+                 color=~death_rate,
+                 colorscale='Jet',
+                 size=10,
+                 opacity=.9,
+                 colorbar=list(
+                   title='Taxa de Letalidade',orientation = "h"
+                 )))
+citiesCases <- citiesCases %>% layout(citiesCases, xaxis = list(title = "Casos por 100 mil habitantes",type = "log"),
+       yaxis = list(title = "Óbitos por 100 mil habitantes", type = "log"),
+       title ="Casos e óbitos por 100 mil hab. por UF",
+       margin = list(l=80, t=70, b=50, r=40))
+
+citiesCases
+```
+Podemos ver aqui que há uma grande dispersão entre os municípios. Uma observação que deve ser feita é a de que as cidades com as maiores taxas de letalidade (os pontos vermelhos escuros no gráfico) são cidades pequenas, sendo que a maior delas possui 23 mil habitantes. Portanto, a alta taxa de letalidade sugere que é fruto de uma pequena incidência total de casos devido a uma população pequena.
+
+As duas cidades com menor índice de óbitos por 100 mil habitantes são Sete Lagoas - MG e Ponta Grossa - PR. Ambas são cidades de médio porte, acima de 200 mil habitantes, o que as coloca como cidades que valham a pena ser avaliadas, pois há indícios de que estão conseguindo sucesso para evitar óbitos.
+
+A análise abaixo apresenta os mesmos gráficos, porém, as cores representam a região que os municípios se encontram.
+
+```{r ploting.cities2, echo = FALSE}
+
+citiesCasesRegion <- plot_ly(data = city.agg.data, x = ~cases_per_100k,y = ~deaths_per_100k,type = "scatter", mode = "markers",
+               color = ~region, colors = "Dark2", marker = list(opacity = 0.5, size = 10),
+               text = ~paste("Casos por 100k:",round(cases_per_100k,1),
+                             "<br>Óbitos por 100k:",round(deaths_per_100k,1),"<br>Letalidade:",
+                             100*round(death_rate,3),"%",
+                             "<br>UF:",state,"<br>Cidade:",city))
+citiesCasesRegion <- citiesCasesRegion %>% layout(citiesCasesRegion, xaxis = list(title = "Casos por 100 mil habitantes",type = "log"),
+       yaxis = list(title = "Óbitos por 100 mil habitantes", type = "log"),
+       title ="Casos e óbitos por 100 mil hab. por UF",
+       margin = list(l=80, t=70, b=50, r=40))
+citiesCasesRegion
+```
+
+E possível observar que os municípios da região Norte apresentam as maiores incidências de casos e óbitos por 100 mil habitantes, seguido da região Nordeste. Lobo avaixo, as reiões que Sul e Sudeste, e, depois, o Centro-oeste, com uma nuvem de pontos majoritariamente em regiões com menores casos e óbitos.
+
+## Conclusão
+De maneira geral, estamos ainda no estágio de crescimento da COVID-19 e há ainda muito trabalho para alcançarmos o estágio que os países europeus agora estão começando a apresentar, ou seja, de estabilização e queda da doença.
+Há algumas cidades que se destacam, mas, nos dados agregados por UFs, podemos ver que estamos de forma geral bem piores que a mediana dos países, com 20 UFs apresentando mais casos por habitantes do que esta mediana.
